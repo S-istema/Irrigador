@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Agendador do Motor - Arduino</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; margin-top: 40px; background-color: #f4f4f9; }
+        .card { background: white; padding: 30px; border-radius: 12px; display: inline-block; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 380px; text-align: left; }
+        h1 { text-align: center; font-size: 22px; }
+        label { font-weight: bold; font-size: 14px; display: block; margin-top: 15px; }
+        input { width: 100%; padding: 10px; font-size: 16px; margin-top: 5px; border-radius: 6px; border: 1px solid #ccc; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; font-size: 16px; margin-top: 20px; border-radius: 8px; border: none; cursor: pointer; color: white; font-weight: bold; }
+        #btnConectar { background-color: #007BFF; }
+        #btnAgendar { background-color: #28a745; }
+        button:disabled, #btnConectar:disabled { background-color: #cccccc; cursor: not-allowed; }
+        .status { margin-top: 20px; font-weight: bold; font-size: 14px; text-align: center; }
+        .relogio-atual { text-align: center; font-size: 14px; color: #555; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h1>Painel Automático do Motor</h1>
+        
+        <div class="relogio-atual" id="relogioAtual">Hora atual: --:--:--</div>
+
+        <button id="btnConectar" onclick="conectarPorta()">Conectar Arduino</button>
+        <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;">
+
+        <label for="horaInput">Horário para ligar:</label>
+        <input type="time" id="horaInput">
+
+        <label for="tempoInput">Tempo ligado (segundos):</label>
+        <input type="number" id="tempoInput" value="5" min="1" max="3600">
+
+        <button id="btnAgendar" onclick="ativarAgendamento()" disabled>Ativar Agendamento</button>
+
+        <div class="status" id="statusConexao" style="color: #dc3545;">Status: Desconectado</div>
+    </div>
+
+    <script>
+        let port;
+        let writer;
+        let timerAgendamento = null;
+        let agendamentoAtivo = false;
+
+        // Atualiza o relógio na tela a cada segundo
+        setInterval(() => {
+            const agora = new Date();
+            const horas = String(agora.getHours()).padStart(2, '0');
+            const minutos = String(agora.getMinutes()).padStart(2, '0');
+            const segundos = String(agora.getSeconds()).padStart(2, '0');
+            document.getElementById('relogioAtual').innerText = `Hora atual: ${horas}:${minutos}:${segundos}`;
+
+            // Se o agendamento estiver ativo, verifica se chegou a hora
+            if (agendamentoAtivo) {
+                let horarioAlvo = document.getElementById('horaInput').value; // Formato "HH:MM"
+                let horaAtualStr = `${horas}:${minutos}`;
+
+                if (horarioAlvo === horaAtualStr) {
+                    agendamentoAtivo = false; // Desativa para não disparar várias vezes no mesmo minuto
+                    executarCicloMotor();
+                }
+            }
+        }, 1000);
+
+        async function conectarPorta() {
+            try {
+                port = await navigator.serial.requestPort();
+                await port.open({ baudRate: 9600 });
+                writer = port.writable.getWriter();
+                
+                let statusEl = document.getElementById('statusConexao');
+                statusEl.innerText = "Status: Conectado com sucesso!";
+                statusEl.style.color = "green";
+                
+                document.getElementById('btnAgendar').disabled = false;
+                document.getElementById('btnConectar').disabled = true;
+
+            } catch (err) {
+                console.error("Erro ao conectar:", err);
+                alert("Falha ao conectar à porta serial.");
+            }
+        }
+
+        async function enviarComando(dado) {
+            if (!writer) return;
+            const dataEncoder = new TextEncoder();
+            await writer.write(dataEncoder.encode(dado));
+        }
+
+        function ativarAgendamento() {
+            let horario = document.getElementById('horaInput').value;
+            if (!horario) {
+                alert("Por favor, selecione um horário válido.");
+                return;
+            }
+
+            agendamentoAtivo = true;
+            let botao = document.getElementById('btnAgendar');
+            botao.disabled = true;
+            botao.style.backgroundColor = "#ffc107";
+            botao.style.color = "black";
+            botao.innerText = "Agendado! Aguardando horário...";
+            
+            alert(`Motor agendado para ligar às ${horario}! Mantenha o navegador aberto.`);
+        }
+
+        async function executarCicloMotor() {
+            let segundos = document.getElementById('tempoInput').value;
+            let milissegundos = segundos * 1000;
+
+            let botao = document.getElementById('btnAgendar');
+            botao.innerText = "Motor Ligado (Executando)...";
+
+            // 1. Liga o motor
+            await enviarComando('1');
+
+            // 2. Espera o tempo configurado
+            await new Promise(resolve => setTimeout(resolve, milissegundos));
+
+            // 3. Desliga o motor
+            await enviarComando('0');
+
+            // Reseta o botão para permitir novo agendamento
+            botao.disabled = false;
+            botao.style.backgroundColor = "#28a745";
+            botao.style.color = "white";
+            botao.innerText = "Ativar Agendamento";
+        }
+    </script>
+
+</body>
+</html>
